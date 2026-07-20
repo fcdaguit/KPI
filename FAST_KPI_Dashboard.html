@@ -930,33 +930,52 @@ function renderActualVsTargetCard(){
   requestAnimationFrame(()=>{
     const actualM = monthlyTotals(allSell(), state.years.current);
     const targetM = monthlyTotals(allTgt(), state.years.current);
+    const achievementM = actualM.map((a,i)=> targetM[i] > 0 ? (a/targetM[i]*100) : null);
     destroyChart("actualTarget");
     const ctx = document.getElementById("chartActualTarget");
     charts.actualTarget = new Chart(ctx, {
       data:{
         labels: MONTHS.map(m=>m.slice(0,3)),
         datasets:[
-          {type:"bar", label:"Actual Sales", data:actualM, backgroundColor:"#0000ba", borderRadius:4, barPercentage:.6},
-          {type:"line", label:"Target", data:targetM, borderColor:"#e8121c", backgroundColor:"#e8121c", tension:.35, pointRadius:3, borderWidth:2},
+          {type:"bar", label:"Actual Sales", data:actualM, backgroundColor:"#0000ba", borderRadius:4, barPercentage:.6, yAxisID:"y"},
+          {type:"line", label:"Target", data:targetM, borderColor:"#e8121c", backgroundColor:"#e8121c", tension:.35, pointRadius:3, borderWidth:2, yAxisID:"y"},
+          {type:"line", label:"Achievement %", data:achievementM, borderColor:"#12915a", backgroundColor:"#12915a", borderDash:[4,3], tension:.35, pointRadius:3, borderWidth:2, yAxisID:"y1", spanGaps:false},
         ]
       },
       options:{
         responsive:true, maintainAspectRatio:false,
-        plugins:{legend:{position:"bottom", labels:{boxWidth:10,font:{size:11}}}},
-        scales:{ y:{ ticks:{ callback:v=>fmtPeso(v) } } }
+        plugins:{
+          legend:{position:"bottom", labels:{boxWidth:10,font:{size:11}}},
+          tooltip:{callbacks:{label:(ctx)=>{
+            if (ctx.dataset.label === "Achievement %") return ctx.parsed.y===null ? "Achievement %: no target" : `Achievement %: ${ctx.parsed.y.toFixed(1)}%`;
+            return `${ctx.dataset.label}: ${fmtPeso(ctx.parsed.y)}`;
+          }}}
+        },
+        scales:{
+          y:{ position:"left", ticks:{ callback:v=>fmtPeso(v) } },
+          y1:{ position:"right", grid:{drawOnChartArea:false}, ticks:{ callback:v=>v+"%" }, suggestedMin:0 }
+        }
       }
     });
 
     const totalActual = sum(actualM), totalTarget = sum(targetM);
     const achievement = totalTarget ? (totalActual/totalTarget*100) : 0;
-    const diffs = actualM.map((a,i)=>a-targetM[i]);
-    const best = argmax(diffs), worst = argmin(diffs.map((d,i)=> targetM[i]>0 || actualM[i]>0 ? d : Infinity));
+    const validIdx = achievementM.map((v,i)=>v!==null?i:null).filter(i=>i!==null);
     const es = document.getElementById("esActualTarget");
-    es.innerHTML = `
-      <div class="es-label">Executive Summary</div>
-      <p>Full-year actual sales stand at <b>${fmtPeso(totalActual)}</b> against a target of <b>${fmtPeso(totalTarget)}</b>, ${achievement>=100?"exceeding":"trailing"} target by <b>${Math.abs(achievement-100).toFixed(1)} pts</b> (${achievement.toFixed(1)}% achievement).</p>
-      <p><b>${MONTHS[best]}</b> posted the strongest performance relative to target, while <b>${MONTHS[worst]}</b> showed the widest shortfall. Months with no data are excluded from the analysis.</p>
-    `;
+    if (!validIdx.length){
+      es.innerHTML = `
+        <div class="es-label">Executive Summary</div>
+        <p>Full-year actual sales stand at <b>${fmtPeso(totalActual)}</b>. No target has been set for ${state.years.current} yet, so monthly achievement % can't be calculated.</p>
+      `;
+    } else {
+      const bestI = validIdx.reduce((b,i)=> achievementM[i]>achievementM[b] ? i : b, validIdx[0]);
+      const worstI = validIdx.reduce((w,i)=> achievementM[i]<achievementM[w] ? i : w, validIdx[0]);
+      es.innerHTML = `
+        <div class="es-label">Executive Summary</div>
+        <p>Full-year actual sales stand at <b>${fmtPeso(totalActual)}</b> against a target of <b>${fmtPeso(totalTarget)}</b>, ${achievement>=100?"exceeding":"trailing"} target by <b>${Math.abs(achievement-100).toFixed(1)} pts</b> (${achievement.toFixed(1)}% achievement).</p>
+        <p><b>${MONTHS[bestI]}</b> had the highest monthly achievement at <b>${achievementM[bestI].toFixed(1)}%</b>, while <b>${MONTHS[worstI]}</b> had the lowest at <b>${achievementM[worstI].toFixed(1)}%</b>. Months with no target are excluded from the achievement line.</p>
+      `;
+    }
   });
   return card;
 }
